@@ -1,0 +1,159 @@
+#include arp_protos.mtl
+
+const ARPREQ=1;;
+const ARPANS=2;;
+
+var larp;;
+var larpreq;;
+
+// 
+// funzione dump lista larpreq
+fun dumpListI l=
+if l==nil then Secholn "nil"
+else
+(
+let hd l->[ip t _] in
+  //Iecho ip;
+  (IPecho ip 0 1;
+Secho "::";
+Iecho t;
+Secho "::");
+//Iecho hd l; Secho "::";
+dumpListI tl l
+);;
+// funzione dump list larp
+fun dumpListII l=
+if l==nil then Secholn "nil"
+else
+(
+let hd l->[ip mac] in
+  //Iecho ip;
+  (IPecho ip 0 1;
+  Secho "::";
+  MACecho mac 0 1;
+  Secho "::");
+//Iecho hd l; Secho "::";
+dumpListII tl l
+);;
+
+
+fun mkarp op ipsrc macdst ipdst=
+	strcatlist
+	"\$aa\$aa\$03\$00\$00\$00\$08\$06\$00\$01\$08\$00\$06\$04\$00"::(ctoa op)::
+	mymac::
+	netip::
+	macdst::
+	ipdst
+	::nil;;
+
+fun sendarp ip=
+	netSend (mkarp ARPREQ netip macbroadcast ip) 0 nil macbroadcast 0 1;;
+
+
+fun filterarpip l src =
+	if l!=nil then let hd l->[ip _ _] in if !vstrcmp src 8+14 ip 0 4  then filterarpip tl l src
+	else (hd l)::filterarpip tl l src;;
+
+fun checkarp l src=
+	if l!=nil then let hd l->[ip _ cb] in 
+	(
+		if !vstrcmp src 8+14 ip 0 4 then
+		let strsub src 8+8 6 -> mac in
+		(
+			Secho "found MAC target : "; MACecho mac 0 1;
+			// inserito nil per fine lista. cresceva senza motivo.. ma serve?
+            set larp=[ip mac]::nil;//larp;
+			call cb [mac]
+		);
+		checkarp tl l src
+	);
+	nil
+;;
+
+fun cbnetarp src mac=
+// il parametro mac non serve!
+
+	//Secho "<a";
+	let strget src 8+7-> op in
+	if op==1 then // req
+	(
+//		Secho "ask ";MACecho src 16+10 1; IPecho src 16+16 1;
+		if !vstrcmp src 32 netip 0 4 then
+        // recuperato il mac di destinazione direttamente dalla richiesta arp arrivata op=1
+        let strsub src 16 6 -> m in
+			netSend (mkarp ARPANS netip strsub src 16 6 strsub src 22 4) 0 nil m 0 1;
+		nil
+	)
+	else if op==2 then
+		let larpreq->l in
+		(
+			set larpreq=filterarpip larpreq src;
+			checkarp l src
+		)
+	; 0
+;;
+
+fun subnet_ ip i=
+	if i<0 then 1
+	else if ((strget ip i)^(strget netip i))&(strget netmask i) then 0
+	else subnet_ ip i-1;;
+
+fun subnet ip=
+	//Secho "test subnet "; IPecho ip 0 1;
+	/*Iecholn */ subnet_ ip 3;;
+	
+	
+// controllo la lista larpreq.. quella che scade a tempo
+// in realtà sembra che scada cosi in fretta che da sempre nil
+fun checkList l ips=
+Secholn "CC:checkList";
+if l==nil then 
+ nil
+else
+ let hd l->[ip _ _] in (
+ Secholn "IP:"; IPecho ips 0 1;Secho "---"; IPecho ip 0 1;
+  if ip==ips then 1   else checkList tl l ips)
+;;
+	
+fun arpreq ip cb=
+//	let /* IPecho */ (if subnet ip then ip else netgateway) /* 0 1 */ -> ip in
+//( Secholn "IPdacontrollare:";  IPecho ip 0 1 ; let checkList larpreq ip->found in Iecholn found);
+
+	let /* IPecho */ (if subnet ip then ip else netgateway) /* 0 1 */ -> ip in
+    let checkList larpreq ip->found in
+ if found!=nil then call cb [mymac] //serve un parametro, invece di mac (che non ho nella lista) gli passo mymac
+	else
+	(
+    //Secholn "faccio il send "; Iecho found;
+		sendarp ip;
+		set larpreq=[ip time cb]::larpreq;	// ### attention à la taille de la liste
+		0
+	);;
+  /*  
+	let listswitchstr larp ip -> mac in
+	if mac!=nil then call cb [mac]
+	else
+	(
+		sendarp ip;
+		set larpreq=[ip time cb]::larpreq;	// ### attention à la taille de la liste
+		0
+	);;
+*/
+fun filterarp l dt =
+// debug controllo crescita liste
+Secholn "CC:filterarp..";Secho "larpreq=";dumpListI larpreq;
+Secholn "----";Secho "larp=";dumpListII larp;
+	if l!=nil then let hd l->[ip t _] in if (time-t)>dt then filterarp tl l dt
+	else
+	(
+		sendarp ip;
+		(hd l)::filterarp tl l dt
+	);;
+
+fun arptime =
+	set larpreq=filterarp larpreq 10;;
+
+fun resetarp=
+	set larp=nil;
+	set larpreq=nil;
+	0;;
