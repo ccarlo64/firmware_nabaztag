@@ -1,0 +1,1 @@
+firmware wpa2 by Redox (https://github.com/RedoXyde/nabgcc) with fix for psk 
